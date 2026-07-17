@@ -18,18 +18,22 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import PhoneIcon from '@mui/icons-material/Phone';
+import WhatsAppIcon from '@mui/icons-material/WhatsApp';
 import type { CohortBucket } from '@/lib/anniversaryAnalytics';
 import { telHref } from '@/lib/phone';
+import WhatsAppSendDialog from '@/components/WhatsAppSendDialog';
 
 function CohortPanel({ bucket, filterKey }: { bucket: CohortBucket; filterKey: string }) {
   const [open, setOpen] = useState(bucket.count > 0 && bucket.count <= 15);
+  const [waRow, setWaRow] = useState<(typeof bucket.rows)[0] | null>(null);
 
   return (
-    <Card variant="outlined" sx={{ mb: 2 }}>
+    <Card variant="outlined" sx={{ mb: 2, borderRadius: 3 }}>
       <CardContent sx={{ pb: open ? 1 : 2 }}>
         <Stack direction="row" alignItems="flex-start" justifyContent="space-between" spacing={1}>
           <Box sx={{ flex: 1 }}>
@@ -71,7 +75,11 @@ function CohortPanel({ bucket, filterKey }: { bucket: CohortBucket; filterKey: s
               No customers in this group.
             </Typography>
           ) : (
-            <TableContainer component={Paper} variant="outlined" sx={{ mt: 2, maxHeight: 360 }}>
+            <TableContainer
+              component={Paper}
+              variant="outlined"
+              sx={{ mt: 2, maxHeight: 360, borderRadius: 2 }}
+            >
               <Table size="small" stickyHeader>
                 <TableHead>
                   <TableRow>
@@ -85,19 +93,27 @@ function CohortPanel({ bucket, filterKey }: { bucket: CohortBucket; filterKey: s
                 <TableBody>
                   {bucket.rows.map((row) => (
                     <TableRow key={row.id} hover>
-                      <TableCell>{row.customerName}</TableCell>
+                      <TableCell sx={{ fontWeight: 600 }}>{row.customerName}</TableCell>
                       <TableCell>{row.phoneDisplay}</TableCell>
                       <TableCell>{row.reference || '—'}</TableCell>
                       <TableCell>{row.saleDateDisplay}</TableCell>
                       <TableCell align="right">
-                        <IconButton
-                          size="small"
-                          component="a"
-                          href={telHref(row.phone)}
-                          aria-label="Call"
-                        >
-                          <PhoneIcon fontSize="small" />
-                        </IconButton>
+                        <Tooltip title="Call">
+                          <IconButton
+                            size="small"
+                            component="a"
+                            href={telHref(row.phone)}
+                            aria-label="Call"
+                            color="primary"
+                          >
+                            <PhoneIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="WhatsApp — choose template">
+                          <IconButton size="small" color="success" onClick={() => setWaRow(row)}>
+                            <WhatsAppIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
                         <Button size="small" component={Link} href={`/sales?highlight=${row.id}`}>
                           Open
                         </Button>
@@ -115,6 +131,22 @@ function CohortPanel({ bucket, filterKey }: { bucket: CohortBucket; filterKey: s
           )}
         </Collapse>
       </CardContent>
+
+      <WhatsAppSendDialog
+        open={Boolean(waRow)}
+        sale={
+          waRow
+            ? {
+                id: waRow.id,
+                customerName: waRow.customerName,
+                phone: waRow.phone,
+                reference: waRow.reference,
+                saleDate: waRow.saleDate,
+              }
+            : null
+        }
+        onClose={() => setWaRow(null)}
+      />
     </Card>
   );
 }

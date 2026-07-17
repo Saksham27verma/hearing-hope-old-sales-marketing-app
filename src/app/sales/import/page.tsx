@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import AppShell from '@/components/AppShell';
-import { Box, Button, Paper, Typography, Alert, LinearProgress } from '@mui/material';
+import { Alert, Box, Button, LinearProgress, Paper, Typography } from '@mui/material';
 
 export default function ImportPage() {
   const [csv, setCsv] = useState('');
@@ -64,23 +64,34 @@ export default function ImportPage() {
 
   return (
     <AppShell>
-      <Typography variant="h5" fontWeight={700} gutterBottom>
-        Import CSV
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Headers: customerName, phone, reference, saleDate, address, centerId, notes
-      </Typography>
-      <Paper sx={{ p: 2 }}>
+      <Box sx={{ mb: 3 }}>
+        <Typography variant="h5" gutterBottom sx={{ mb: 0.5 }}>
+          Import CSV
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Headers: customerName, phone, reference, saleDate, address, centerId, notes
+        </Typography>
+      </Box>
+      <Paper
+        elevation={0}
+        sx={{
+          p: { xs: 2.5, sm: 3 },
+          border: '1px solid',
+          borderColor: 'divider',
+          borderRadius: 3,
+          maxWidth: 640,
+        }}
+      >
         <Button variant="outlined" component="label">
           Choose CSV file
           <input type="file" accept=".csv,text/csv" hidden onChange={onFile} />
         </Button>
         {csv && (
-          <Typography variant="caption" display="block" sx={{ mt: 1 }}>
+          <Typography variant="caption" display="block" sx={{ mt: 1.5 }}>
             {csv.split('\n').length - 1} data rows loaded
           </Typography>
         )}
-        <Box sx={{ mt: 2 }}>
+        <Box sx={{ mt: 2.5 }}>
           <Button variant="contained" disabled={!csv || loading} onClick={() => void importCsv()}>
             Import
           </Button>
@@ -88,8 +99,14 @@ export default function ImportPage() {
         {loading && <LinearProgress sx={{ mt: 2 }} />}
         {result && (
           <Alert
-            severity={result.error || (result.errors?.length && !result.imported) ? 'error' : result.errors?.length ? 'warning' : 'success'}
-            sx={{ mt: 2 }}
+            severity={
+              result.error || (result.errors?.length && !result.imported)
+                ? 'error'
+                : result.errors?.length
+                  ? 'warning'
+                  : 'success'
+            }
+            sx={{ mt: 2, borderRadius: 2 }}
           >
             {result.error ? (
               result.error

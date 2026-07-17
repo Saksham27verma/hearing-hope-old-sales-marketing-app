@@ -15,8 +15,15 @@ import {
   Button,
   Stack,
   CircularProgress,
+  Paper,
+  alpha,
 } from '@mui/material';
 import Link from 'next/link';
+import EventAvailableIcon from '@mui/icons-material/EventAvailable';
+import CakeIcon from '@mui/icons-material/Cake';
+import GroupsIcon from '@mui/icons-material/Groups';
+import InventoryIcon from '@mui/icons-material/Inventory2';
+import WhatsAppIcon from '@mui/icons-material/WhatsApp';
 import type { LifecycleNotification } from '@/db/schema';
 import type { AnniversaryDashboard } from '@/lib/anniversaryAnalytics';
 
@@ -30,6 +37,8 @@ type Stats = {
   currentMonthLabel?: string;
   anniversary?: AnniversaryDashboard;
 };
+
+const STAT_ICONS = [EventAvailableIcon, CakeIcon, GroupsIcon, InventoryIcon];
 
 export default function DashboardPage() {
   const [stats, setStats] = useState<Stats | null>(null);
@@ -60,20 +69,35 @@ export default function DashboardPage() {
     return 'default';
   };
 
+  const cards = [
+    { label: 'Due today (milestones)', value: stats?.dueToday ?? 0, accent: '#0d7377' },
+    { label: '1yr anniversary today', value: ann?.anniversaryToday.oneYear.count ?? 0, accent: '#c45c26' },
+    {
+      label: `${ann?.sameMonthCohort.oneYearBack.label ?? 'Same month'} (1yr back)`,
+      value: ann?.sameMonthCohort.oneYearBack.count ?? 0,
+      accent: '#1b7a4e',
+    },
+    { label: 'Total sales', value: stats?.totalSales ?? 0, accent: '#3d5a80' },
+  ];
+
   return (
     <AppShell>
-      <Typography variant="h5" fontWeight={700} gutterBottom>
-        Dashboard
-      </Typography>
-      {stats?.today && (
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Today (IST): {stats.today}
-          {stats.currentMonthLabel ? ` · Current month: ${stats.currentMonthLabel}` : ''}
+      <Box sx={{ mb: 3 }}>
+        <Typography variant="h5" gutterBottom sx={{ mb: 0.5 }}>
+          Dashboard
         </Typography>
-      )}
+        {stats?.today && (
+          <Typography variant="body2" color="text.secondary">
+            Today (IST): {stats.today}
+            {stats.currentMonthLabel ? ` · Current month: ${stats.currentMonthLabel}` : ''}
+          </Typography>
+        )}
+      </Box>
 
       {loading ? (
-        <CircularProgress />
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+          <CircularProgress />
+        </Box>
       ) : (
         <>
           <Box
@@ -81,26 +105,62 @@ export default function DashboardPage() {
               display: 'grid',
               gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: 'repeat(4, 1fr)' },
               gap: 2,
-              mb: 3,
+              mb: 3.5,
             }}
           >
-            {[
-              { label: 'Due today (milestones)', value: stats?.dueToday ?? 0 },
-              { label: '1yr anniversary today', value: ann?.anniversaryToday.oneYear.count ?? 0 },
-              { label: `${ann?.sameMonthCohort.oneYearBack.label ?? 'Same month'} (1yr back)`, value: ann?.sameMonthCohort.oneYearBack.count ?? 0 },
-              { label: 'Total sales', value: stats?.totalSales ?? 0 },
-            ].map((c) => (
-              <Card key={c.label}>
-                <CardContent>
-                  <Typography color="text.secondary" variant="body2">
-                    {c.label}
-                  </Typography>
-                  <Typography variant="h4" fontWeight={700}>
-                    {c.value}
-                  </Typography>
-                </CardContent>
-              </Card>
-            ))}
+            {cards.map((c, i) => {
+              const Icon = STAT_ICONS[i];
+              return (
+                <Card
+                  key={c.label}
+                  sx={{
+                    position: 'relative',
+                    overflow: 'hidden',
+                    transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+                    '&:hover': {
+                      transform: 'translateY(-2px)',
+                      boxShadow: `0 8px 24px ${alpha(c.accent, 0.15)}`,
+                    },
+                  }}
+                >
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      height: 3,
+                      bgcolor: c.accent,
+                    }}
+                  />
+                  <CardContent sx={{ pt: 2.5 }}>
+                    <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+                      <Box>
+                        <Typography color="text.secondary" variant="body2" sx={{ mb: 0.75, fontWeight: 500 }}>
+                          {c.label}
+                        </Typography>
+                        <Typography variant="h4" fontWeight={700} sx={{ color: c.accent }}>
+                          {c.value}
+                        </Typography>
+                      </Box>
+                      <Box
+                        sx={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: 2,
+                          display: 'grid',
+                          placeItems: 'center',
+                          bgcolor: alpha(c.accent, 0.1),
+                          color: c.accent,
+                        }}
+                      >
+                        <Icon fontSize="small" />
+                      </Box>
+                    </Stack>
+                  </CardContent>
+                </Card>
+              );
+            })}
           </Box>
 
           {ann && (
@@ -128,51 +188,85 @@ export default function DashboardPage() {
           )}
 
           {stats?.dueByMilestone && Object.keys(stats.dueByMilestone).length > 0 && (
-            <Box sx={{ mb: 3 }}>
-              <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+            <Paper
+              elevation={0}
+              sx={{
+                mb: 3,
+                p: 2.5,
+                border: '1px solid',
+                borderColor: 'divider',
+                borderRadius: 3,
+              }}
+            >
+              <Typography variant="subtitle1" fontWeight={700} gutterBottom>
                 Milestone rules due today
               </Typography>
-              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
                 {Object.entries(stats.dueByMilestone).map(([k, v]) => (
                   <Chip key={k} label={`${k}: ${v}`} color="primary" variant="outlined" />
                 ))}
               </Stack>
-              <Button component={Link} href="/whatsapp/bulk" variant="contained" sx={{ mt: 2 }}>
+              <Button
+                component={Link}
+                href="/whatsapp/bulk"
+                variant="contained"
+                color="success"
+                startIcon={<WhatsAppIcon />}
+              >
                 Message all due today
               </Button>
-            </Box>
+            </Paper>
           )}
         </>
       )}
 
-      <Typography variant="subtitle1" fontWeight={600} gutterBottom sx={{ mt: 2 }}>
-        Recent notifications
-      </Typography>
-      <List>
-        {notifications.slice(0, 15).map((n) => (
-          <ListItem
-            key={n.id}
-            secondaryAction={
-              <Button size="small" component={Link} href={`/sales?highlight=${n.saleId}`}>
-                View
-              </Button>
-            }
-          >
-            <ListItemText
-              primary={
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <span>{n.title}</span>
-                  <Chip size="small" label={n.status} color={statusColor(n.status)} />
-                </Stack>
+      <Paper
+        elevation={0}
+        sx={{
+          mt: 2,
+          border: '1px solid',
+          borderColor: 'divider',
+          borderRadius: 3,
+          overflow: 'hidden',
+        }}
+      >
+        <Box sx={{ px: 2.5, pt: 2.5, pb: 1 }}>
+          <Typography variant="subtitle1" fontWeight={700}>
+            Recent notifications
+          </Typography>
+        </Box>
+        <List disablePadding>
+          {notifications.slice(0, 15).map((n, idx) => (
+            <ListItem
+              key={n.id}
+              divider={idx < Math.min(notifications.length, 15) - 1}
+              secondaryAction={
+                <Button size="small" component={Link} href={`/sales?highlight=${n.saleId}`}>
+                  View
+                </Button>
               }
-              secondary={n.message}
-            />
-          </ListItem>
-        ))}
-        {notifications.length === 0 && !loading && (
-          <Typography color="text.secondary">No notifications yet.</Typography>
-        )}
-      </List>
+              sx={{ px: 2.5, py: 1.5 }}
+            >
+              <ListItemText
+                primary={
+                  <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                    <Typography component="span" fontWeight={600}>
+                      {n.title}
+                    </Typography>
+                    <Chip size="small" label={n.status.replace(/_/g, ' ')} color={statusColor(n.status)} />
+                  </Stack>
+                }
+                secondary={n.message}
+              />
+            </ListItem>
+          ))}
+          {notifications.length === 0 && !loading && (
+            <Box sx={{ px: 2.5, py: 4 }}>
+              <Typography color="text.secondary">No notifications yet.</Typography>
+            </Box>
+          )}
+        </List>
+      </Paper>
     </AppShell>
   );
 }

@@ -3,7 +3,9 @@
 import React, { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import AppShell from '@/components/AppShell';
+import WhatsAppSendDialog from '@/components/WhatsAppSendDialog';
 import {
+  Alert,
   Box,
   Button,
   Chip,
@@ -24,10 +26,14 @@ import {
   Typography,
   Paper,
   Tooltip,
+  InputAdornment,
+  alpha,
 } from '@mui/material';
 import PhoneIcon from '@mui/icons-material/Phone';
 import WhatsAppIcon from '@mui/icons-material/WhatsApp';
 import EditIcon from '@mui/icons-material/Edit';
+import AddIcon from '@mui/icons-material/Add';
+import SearchIcon from '@mui/icons-material/Search';
 import Link from 'next/link';
 import type { LegacySale } from '@/db/schema';
 import { COHORT_LABELS, isCohortKey } from '@/lib/cohortFilter';
@@ -44,6 +50,7 @@ function SalesPageInner() {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<LegacySale | null>(null);
+  const [waSale, setWaSale] = useState<LegacySale | null>(null);
   const [form, setForm] = useState({
     customerName: '',
     phone: '',
@@ -53,7 +60,7 @@ function SalesPageInner() {
     notes: '',
     status: 'active',
   });
-  const [msg, setMsg] = useState('');
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
   const load = async () => {
     const qs = new URLSearchParams();
@@ -99,46 +106,50 @@ function SalesPageInner() {
     });
     const data = await res.json();
     if (!res.ok) {
-      setMsg(data.error || 'Save failed');
+      setMsg({ text: data.error || 'Save failed', ok: false });
       return;
     }
     setOpen(false);
-    setMsg('');
+    setMsg(null);
     void load();
   };
 
-  const sendWa = async (id: string, templateKey: string) => {
-    const res = await fetch('/api/whatsapp', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ saleId: id, templateKey }),
-    });
-    const data = await res.json();
-    setMsg(data.ok ? 'WhatsApp sent' : data.error || 'Failed');
-  };
-
   const statusChip = (s: string) => {
-    const color = s === 'active' ? 'success' : s === 'do_not_contact' ? 'error' : 'default';
-    return <Chip size="small" label={s} color={color} />;
+    const color =
+      s === 'active' ? 'success' : s === 'do_not_contact' ? 'error' : s === 'serviced' ? 'primary' : 'default';
+    return <Chip size="small" label={s.replace(/_/g, ' ')} color={color} variant="outlined" />;
   };
 
   return (
     <AppShell>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-        <Typography variant="h5" fontWeight={700}>
-          Legacy Sales
-        </Typography>
-        <Button variant="contained" onClick={openNew}>
+      <Stack
+        direction={{ xs: 'column', sm: 'row' }}
+        justifyContent="space-between"
+        alignItems={{ xs: 'stretch', sm: 'center' }}
+        spacing={1.5}
+        sx={{ mb: 2.5 }}
+      >
+        <Box>
+          <Typography variant="h5" gutterBottom sx={{ mb: 0.5 }}>
+            Legacy Sales
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Search customers, call, or WhatsApp with a selected template.
+          </Typography>
+        </Box>
+        <Button variant="contained" startIcon={<AddIcon />} onClick={openNew}>
           Add sale
         </Button>
       </Stack>
+
       {msg && (
-        <Typography color={msg.includes('sent') ? 'success.main' : 'error'} sx={{ mb: 1 }}>
-          {msg}
-        </Typography>
+        <Alert severity={msg.ok ? 'success' : 'error'} sx={{ mb: 2 }} onClose={() => setMsg(null)}>
+          {msg.text}
+        </Alert>
       )}
+
       {cohortLabel && (
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }} flexWrap="wrap" useFlexGap>
           <Chip label={cohortLabel} color="primary" />
           <Typography variant="body2" color="text.secondary">
             {rows.length} customer{rows.length === 1 ? '' : 's'}
@@ -148,6 +159,7 @@ function SalesPageInner() {
           </Button>
         </Stack>
       )}
+
       <TextField
         fullWidth
         size="small"
@@ -155,8 +167,25 @@ function SalesPageInner() {
         value={q}
         onChange={(e) => setQ(e.target.value)}
         sx={{ mb: 2 }}
+        InputProps={{
+          startAdornment: (
+            <InputAdornment position="start">
+              <SearchIcon fontSize="small" color="action" />
+            </InputAdornment>
+          ),
+        }}
       />
-      <TableContainer component={Paper}>
+
+      <TableContainer
+        component={Paper}
+        elevation={0}
+        sx={{
+          border: '1px solid',
+          borderColor: 'divider',
+          borderRadius: 3,
+          overflow: 'hidden',
+        }}
+      >
         <Table size="small">
           <TableHead>
             <TableRow>
@@ -172,46 +201,97 @@ function SalesPageInner() {
             {rows.map((row) => (
               <TableRow
                 key={row.id}
-                sx={highlight === row.id ? { bgcolor: 'action.selected' } : undefined}
+                hover
+                sx={
+                  highlight === row.id
+                    ? { bgcolor: (t) => alpha(t.palette.primary.main, 0.08) }
+                    : undefined
+                }
               >
-                <TableCell>{row.customerName}</TableCell>
+                <TableCell sx={{ fontWeight: 600 }}>{row.customerName}</TableCell>
                 <TableCell>{formatPhoneDisplay(row.phone)}</TableCell>
                 <TableCell>{row.reference || '—'}</TableCell>
                 <TableCell>{formatSaleDateDisplay(row.saleDate)}</TableCell>
                 <TableCell>{statusChip(row.status)}</TableCell>
                 <TableCell align="right">
                   <Tooltip title="Call">
-                    <IconButton component="a" href={telHref(row.phone)} size="small">
+                    <IconButton component="a" href={telHref(row.phone)} size="small" color="primary">
                       <PhoneIcon fontSize="small" />
                     </IconButton>
                   </Tooltip>
-                  <Tooltip title="WhatsApp (Pinnacle)">
-                    <IconButton size="small" onClick={() => void sendWa(row.id, 'service_1yr')}>
-                      <WhatsAppIcon fontSize="small" color="success" />
+                  <Tooltip title="WhatsApp — choose template">
+                    <IconButton size="small" color="success" onClick={() => setWaSale(row)}>
+                      <WhatsAppIcon fontSize="small" />
                     </IconButton>
                   </Tooltip>
-                  <IconButton size="small" onClick={() => openEdit(row)}>
-                    <EditIcon fontSize="small" />
-                  </IconButton>
+                  <Tooltip title="Edit">
+                    <IconButton size="small" onClick={() => openEdit(row)}>
+                      <EditIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
                 </TableCell>
               </TableRow>
             ))}
+            {rows.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={6} align="center" sx={{ py: 6 }}>
+                  <Typography color="text.secondary">No sales found.</Typography>
+                </TableCell>
+              </TableRow>
+            )}
           </TableBody>
         </Table>
       </TableContainer>
 
       <Dialog open={open} onClose={() => setOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>{editing ? 'Edit sale' : 'Add sale'}</DialogTitle>
+        <DialogTitle sx={{ fontWeight: 700 }}>{editing ? 'Edit sale' : 'Add sale'}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
-            <TextField label="Customer name" value={form.customerName} onChange={(e) => setForm({ ...form, customerName: e.target.value })} fullWidth />
-            <TextField label="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} fullWidth />
-            <TextField label="Reference" value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} fullWidth />
-            <TextField label="Sale date (YYYY-MM-DD)" value={form.saleDate} onChange={(e) => setForm({ ...form, saleDate: e.target.value })} fullWidth />
-            <TextField label="Address" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} fullWidth multiline />
-            <TextField label="Notes" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} fullWidth />
+            <TextField
+              label="Customer name"
+              value={form.customerName}
+              onChange={(e) => setForm({ ...form, customerName: e.target.value })}
+              fullWidth
+            />
+            <TextField
+              label="Phone"
+              value={form.phone}
+              onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              fullWidth
+            />
+            <TextField
+              label="Reference"
+              value={form.reference}
+              onChange={(e) => setForm({ ...form, reference: e.target.value })}
+              fullWidth
+            />
+            <TextField
+              label="Sale date (YYYY-MM-DD)"
+              value={form.saleDate}
+              onChange={(e) => setForm({ ...form, saleDate: e.target.value })}
+              fullWidth
+            />
+            <TextField
+              label="Address"
+              value={form.address}
+              onChange={(e) => setForm({ ...form, address: e.target.value })}
+              fullWidth
+              multiline
+            />
+            <TextField
+              label="Notes"
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              fullWidth
+            />
             {editing && (
-              <TextField select label="Status" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} fullWidth>
+              <TextField
+                select
+                label="Status"
+                value={form.status}
+                onChange={(e) => setForm({ ...form, status: e.target.value })}
+                fullWidth
+              >
                 <MenuItem value="active">active</MenuItem>
                 <MenuItem value="contacted">contacted</MenuItem>
                 <MenuItem value="serviced">serviced</MenuItem>
@@ -220,13 +300,20 @@ function SalesPageInner() {
             )}
           </Stack>
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setOpen(false)}>Cancel</Button>
           <Button variant="contained" onClick={() => void save()}>
             Save
           </Button>
         </DialogActions>
       </Dialog>
+
+      <WhatsAppSendDialog
+        open={Boolean(waSale)}
+        sale={waSale}
+        onClose={() => setWaSale(null)}
+        onSent={(ok, text) => setMsg({ text, ok })}
+      />
     </AppShell>
   );
 }

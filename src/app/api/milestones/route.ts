@@ -3,11 +3,12 @@ import { eq } from 'drizzle-orm';
 import { db, ensureTables } from '@/db';
 import { milestoneRules } from '@/db/schema';
 import { newId } from '@/lib/templates';
-import { seedDefaultMilestonesIfEmpty } from '@/lib/milestones';
+import { ensureSixMonthServiceMilestone, seedDefaultMilestonesIfEmpty } from '@/lib/milestones';
 
 export async function GET() {
   await ensureTables();
   await seedDefaultMilestonesIfEmpty();
+  await ensureSixMonthServiceMilestone();
   const rows = await db.select().from(milestoneRules);
   return NextResponse.json({ ok: true, rows });
 }

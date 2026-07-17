@@ -11,38 +11,71 @@ import { addDaysYmd, getIstYmd, isoNow } from '@/lib/dates';
 import { buildMilestoneMessages, newId, parseMilestonesSent } from '@/lib/templates';
 import { notifyCrmSaleMilestone } from '@/lib/crmClient';
 
+const DEFAULT_MILESTONES = [
+  {
+    daysAfterSale: 180,
+    label: '6-month service',
+    templateKey: 'service_6mo',
+    titleTemplate: '{{milestoneLabel}} due — {{customerName}}',
+    messageTemplate:
+      'Hi {{customerName}}, your Hearing Hope device purchased on {{saleDate}} ({{reference}}) is due for a 6-month service checkup. Please call us to book your appointment.',
+    enabled: true,
+    sortOrder: 0,
+  },
+  {
+    daysAfterSale: 365,
+    label: '1-year service',
+    templateKey: 'service_1yr',
+    titleTemplate: '{{milestoneLabel}} due — {{customerName}}',
+    messageTemplate:
+      'Hi {{customerName}}, your Hearing Hope device purchased on {{saleDate}} ({{reference}}) is due for annual servicing. Please call us to schedule.',
+    enabled: true,
+    sortOrder: 1,
+  },
+  {
+    daysAfterSale: 730,
+    label: '2-year upgrade',
+    templateKey: 'upgrade_2yr',
+    titleTemplate: '{{milestoneLabel}} — {{customerName}}',
+    messageTemplate:
+      'Hi {{customerName}}, it has been 2 years since your purchase on {{saleDate}} ({{reference}}). We have upgrade and trade-in options available — reply or call Hearing Hope.',
+    enabled: true,
+    sortOrder: 2,
+  },
+] as const;
+
 export async function seedDefaultMilestonesIfEmpty(): Promise<void> {
   await ensureTables();
   const existing = await db.select().from(milestoneRules).limit(1);
-  if (existing.length > 0) return;
-
-  const defaults = [
-    {
-      id: newId(),
-      daysAfterSale: 365,
-      label: '1-year service',
-      templateKey: 'service_1yr',
-      titleTemplate: '{{milestoneLabel}} due — {{customerName}}',
-      messageTemplate:
-        'Sale on {{saleDate}} · {{reference}} · Please call for annual servicing',
-      enabled: true,
-      sortOrder: 1,
-    },
-    {
-      id: newId(),
-      daysAfterSale: 730,
-      label: '2-year upgrade',
-      templateKey: 'upgrade_2yr',
-      titleTemplate: '{{milestoneLabel}} — {{customerName}}',
-      messageTemplate:
-        'Sale on {{saleDate}} · {{reference}} · Offer upgrade / trade-in',
-      enabled: true,
-      sortOrder: 2,
-    },
-  ];
-  for (const d of defaults) {
-    await db.insert(milestoneRules).values(d);
+  if (existing.length > 0) {
+    await ensureSixMonthServiceMilestone();
+    return;
   }
+
+  for (const d of DEFAULT_MILESTONES) {
+    await db.insert(milestoneRules).values({ id: newId(), ...d });
+  }
+}
+
+/** Ensures the 6-month service rule exists even on DBs seeded before it was added. */
+export async function ensureSixMonthServiceMilestone(): Promise<void> {
+  await ensureTables();
+  const sixMo = DEFAULT_MILESTONES[0];
+  const byDays = await db
+    .select()
+    .from(milestoneRules)
+    .where(eq(milestoneRules.daysAfterSale, sixMo.daysAfterSale))
+    .limit(1);
+  if (byDays.length > 0) return;
+
+  const byKey = await db
+    .select()
+    .from(milestoneRules)
+    .where(eq(milestoneRules.templateKey, sixMo.templateKey))
+    .limit(1);
+  if (byKey.length > 0) return;
+
+  await db.insert(milestoneRules).values({ id: newId(), ...sixMo });
 }
 
 export async function runDailyMilestones(): Promise<{
