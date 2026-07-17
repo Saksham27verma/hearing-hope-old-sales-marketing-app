@@ -103,13 +103,20 @@ export default function WhatsAppSendDialog({ open, sale, onClose, onSent }: Prop
         body: JSON.stringify({
           saleId: sale.id,
           templateKey,
-          bodyParams: [sale.customerName, 'Hearing Hope'],
+          bodyParams: [],
         }),
       });
-      const data = await res.json();
+      const text = await res.text();
+      let data: { ok?: boolean; error?: string } = {};
+      try {
+        data = text ? (JSON.parse(text) as typeof data) : {};
+      } catch {
+        data = { ok: false, error: text || `Request failed (${res.status})` };
+      }
       if (!res.ok || !data.ok) {
-        setError(data.error || 'WhatsApp send failed');
-        onSent?.(false, data.error || 'WhatsApp send failed');
+        const msg = data.error || `WhatsApp send failed (${res.status})`;
+        setError(msg);
+        onSent?.(false, msg);
         return;
       }
       onSent?.(true, 'WhatsApp sent via Pinnacle');
