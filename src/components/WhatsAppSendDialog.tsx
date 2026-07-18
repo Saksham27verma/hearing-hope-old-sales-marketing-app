@@ -136,7 +136,8 @@ export default function WhatsAppSendDialog({ open, sale, onClose, onSent }: Prop
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
           <Typography variant="body2" color="text.secondary">
-            Choose a template, preview the message, then open WhatsApp directly or send via Pinnacle.
+            Choose a template, preview the message, then open WhatsApp directly or send via Pinnacle
+            (approved Meta templates with image header — no placeholders).
           </Typography>
           <FormControl fullWidth size="small">
             <InputLabel>Template</InputLabel>
