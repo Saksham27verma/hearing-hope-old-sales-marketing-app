@@ -30,11 +30,11 @@ type Props = {
   onSent?: (ok: boolean, message: string) => void;
 };
 
-const REMINDER_LABELS: Record<string, string> = {
-  service_6mo: '6-month service reminder PDF',
-  service_1yr: '1-year service reminder PDF',
-  upgrade_2yr: '2-year upgrade offer PDF',
-  general_followup: 'general follow-up PDF',
+const PINNACLE_TEMPLATE_NAMES: Record<string, string> = {
+  service_6mo: 'service_reminder_6mo',
+  service_1yr: 'service_reminder_1yr',
+  upgrade_2yr: 'upgrade_offer_2yr',
+  general_followup: 'general_followup',
 };
 
 export default function WhatsAppSendDialog({ open, sale, onClose, onSent }: Props) {
@@ -94,7 +94,7 @@ export default function WhatsAppSendDialog({ open, sale, onClose, onSent }: Prop
   }, [sale, options, templateKey]);
 
   const displayPhone = (sale?.phone || '').replace(/\D/g, '');
-  const reminderLabel = REMINDER_LABELS[templateKey] || 'service reminder PDF';
+  const templateName = PINNACLE_TEMPLATE_NAMES[templateKey] || templateKey;
 
   const openDirect = () => {
     if (!sale) return;
@@ -143,9 +143,10 @@ export default function WhatsAppSendDialog({ open, sale, onClose, onSent }: Prop
         return;
       }
       const to = data.to || displayPhone;
-      const msg = `Sent ${reminderLabel} to ${to} via Pinnacle (same delivery path as invoices). Check WhatsApp on that number for a PDF from Hearing Hope.`;
+      const sentLabel = data.templateName || templateName;
+      const msg = `Sent Meta-approved template ${sentLabel} to ${to}. If it does not appear on that WhatsApp within a minute, the template is likely MARKETING-category and Meta silently drops it — recreate it as UTILITY in Pinnacle, or set PINNACLE_LIFECYCLE_DELIVERY_MODE=document in CRM as a fallback.`;
       setSuccess(msg);
-      onSent?.(true, `WhatsApp sent → ${to}`);
+      onSent?.(true, `WhatsApp accepted → ${to} (${sentLabel})`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'WhatsApp send failed';
       setError(msg);
@@ -161,14 +162,14 @@ export default function WhatsAppSendDialog({ open, sale, onClose, onSent }: Prop
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
           <Alert severity="info" sx={{ borderRadius: 2 }}>
-            Sends to <strong>{displayPhone || 'unknown phone'}</strong> using the same Pinnacle
-            utility/document path as Sales &amp; Invoicing (service reminder PDF). CRM must be
-            running locally on port 3002.
+            Sends the approved Meta template <strong>{templateName}</strong> (IMAGE header +
+            approved body text) to <strong>{displayPhone || 'unknown phone'}</strong> via Pinnacle.
+            The preview below is not sent; Meta delivers exactly the approved template copy.
           </Alert>
           <FormControl fullWidth size="small">
-            <InputLabel>Reminder</InputLabel>
+            <InputLabel>Template</InputLabel>
             <Select
-              label="Reminder"
+              label="Template"
               value={templateKey}
               onChange={(e) => setTemplateKey(e.target.value)}
             >
@@ -189,7 +190,7 @@ export default function WhatsAppSendDialog({ open, sale, onClose, onSent }: Prop
             }}
           >
             <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, fontWeight: 600 }}>
-              PDF content (also used for “Open WhatsApp” text)
+              Preview for “Open WhatsApp” only — NOT the Pinnacle template body
             </Typography>
             <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
               {preview}
