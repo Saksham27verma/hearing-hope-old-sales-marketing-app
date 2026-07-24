@@ -49,7 +49,14 @@ export async function sendCrmWhatsAppOne(body: {
   customerName: string;
   templateKey: string;
   bodyParams?: string[];
-}): Promise<{ ok: boolean; messageId?: string; error?: string; raw?: unknown }> {
+}): Promise<{
+  ok: boolean;
+  messageId?: string;
+  templateName?: string;
+  to?: string;
+  error?: string;
+  raw?: unknown;
+}> {
   const base = CRM_BASE();
   const secret = WEBHOOK_SECRET();
   if (!base || !secret) return { ok: false, error: 'CRM not configured' };
@@ -67,16 +74,27 @@ export async function sendCrmWhatsAppOne(body: {
       }),
     });
     const data = await readJsonSafe(res);
-    if (!res.ok) {
+    if (!res.ok || data.ok === false) {
       return {
         ok: false,
         error: String(data.error || data.message || res.statusText || `CRM error ${res.status}`),
         raw: data,
       };
     }
+    const messageId = typeof data.messageId === 'string' ? data.messageId.trim() : '';
+    if (!messageId) {
+      return {
+        ok: false,
+        error:
+          'CRM reported success but Pinnacle returned no WhatsApp message id — message was not confirmed sent',
+        raw: data,
+      };
+    }
     return {
       ok: true,
-      messageId: typeof data.messageId === 'string' ? data.messageId : undefined,
+      messageId,
+      templateName: typeof data.templateName === 'string' ? data.templateName : undefined,
+      to: typeof data.to === 'string' ? data.to : undefined,
       raw: data,
     };
   } catch (e) {

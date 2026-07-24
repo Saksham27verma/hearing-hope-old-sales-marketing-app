@@ -40,25 +40,40 @@ export async function POST(req: Request) {
     });
 
     const now = isoNow();
+    const confirmed = Boolean(result.ok && result.messageId);
     await db.insert(whatsappSendLog).values({
       id: newId(),
       saleId: sale[0].id,
       phone: sale[0].phone,
       templateKey,
-      templateName: templateKey,
+      templateName: result.templateName || templateKey,
       pinnacleResponseJson: JSON.stringify(result),
-      status: result.ok ? 'sent' : 'failed',
+      status: confirmed ? 'sent' : 'failed',
       sentAt: now,
     });
 
-    if (result.ok) {
+    if (confirmed) {
       await db
         .update(lifecycleNotifications)
         .set({ status: 'whatsapp_sent', whatsappSentAt: now })
         .where(eq(lifecycleNotifications.saleId, sale[0].id));
     }
 
-    return NextResponse.json(result, { status: result.ok ? 200 : 502 });
+    return NextResponse.json(
+      confirmed
+        ? {
+            ok: true,
+            messageId: result.messageId,
+            templateName: result.templateName,
+            to: result.to,
+          }
+        : {
+            ok: false,
+            error: result.error || 'WhatsApp send was not confirmed by Pinnacle',
+            raw: result.raw,
+          },
+      { status: confirmed ? 200 : 502 },
+    );
   } catch (e) {
     return NextResponse.json(
       {

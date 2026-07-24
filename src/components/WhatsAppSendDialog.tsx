@@ -30,6 +30,13 @@ type Props = {
   onSent?: (ok: boolean, message: string) => void;
 };
 
+const PINNACLE_TEMPLATE_LABELS: Record<string, string> = {
+  service_6mo: 'service_reminder_6mo',
+  service_1yr: 'service_reminder_1yr',
+  upgrade_2yr: 'upgrade_offer_2yr',
+  general_followup: 'general_followup',
+};
+
 export default function WhatsAppSendDialog({ open, sale, onClose, onSent }: Props) {
   const [rules, setRules] = useState<MilestoneRule[]>([]);
   const [templateKey, setTemplateKey] = useState('service_6mo');
@@ -84,6 +91,8 @@ export default function WhatsAppSendDialog({ open, sale, onClose, onSent }: Prop
     });
   }, [sale, options, templateKey]);
 
+  const pinnacleTemplateName = PINNACLE_TEMPLATE_LABELS[templateKey] || templateKey;
+
   const openDirect = () => {
     if (!sale) return;
     const href = whatsAppHref(sale.phone, preview);
@@ -107,19 +116,33 @@ export default function WhatsAppSendDialog({ open, sale, onClose, onSent }: Prop
         }),
       });
       const text = await res.text();
-      let data: { ok?: boolean; error?: string } = {};
+      let data: {
+        ok?: boolean;
+        error?: string;
+        messageId?: string;
+        templateName?: string;
+        to?: string;
+      } = {};
       try {
         data = text ? (JSON.parse(text) as typeof data) : {};
       } catch {
         data = { ok: false, error: text || `Request failed (${res.status})` };
       }
-      if (!res.ok || !data.ok) {
-        const msg = data.error || `WhatsApp send failed (${res.status})`;
+      if (!res.ok || !data.ok || !data.messageId) {
+        const msg =
+          data.error ||
+          (!data.messageId && data.ok
+            ? 'Pinnacle did not confirm a message id'
+            : `WhatsApp send failed (${res.status})`);
         setError(msg);
         onSent?.(false, msg);
         return;
       }
-      onSent?.(true, 'WhatsApp sent via Pinnacle');
+      const sentLabel = data.templateName || pinnacleTemplateName;
+      onSent?.(
+        true,
+        `WhatsApp sent via Pinnacle (${sentLabel}${data.to ? ` → ${data.to}` : ''})`,
+      );
       onClose();
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'WhatsApp send failed';
@@ -136,8 +159,10 @@ export default function WhatsAppSendDialog({ open, sale, onClose, onSent }: Prop
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
           <Typography variant="body2" color="text.secondary">
-            Choose a template, preview the message, then open WhatsApp directly or send via Pinnacle
-            (approved Meta templates with image header — no placeholders).
+            <strong>Send via Pinnacle</strong> delivers the approved Meta template{' '}
+            <code>{pinnacleTemplateName}</code> (image header, fixed copy) through the CRM — the same
+            Pinnacle API used by Sales &amp; Invoicing. The preview below is only for the optional
+            “Open WhatsApp” button and may not match the template wording on the phone.
           </Typography>
           <FormControl fullWidth size="small">
             <InputLabel>Template</InputLabel>
@@ -163,7 +188,7 @@ export default function WhatsAppSendDialog({ open, sale, onClose, onSent }: Prop
             }}
           >
             <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, fontWeight: 600 }}>
-              Message preview
+              Preview for “Open WhatsApp” only (not the Pinnacle template body)
             </Typography>
             <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
               {preview}
