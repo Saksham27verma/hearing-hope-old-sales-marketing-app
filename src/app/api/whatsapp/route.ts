@@ -3,10 +3,14 @@ import { eq } from 'drizzle-orm';
 import { db, ensureTables } from '@/db';
 import { legacySales, lifecycleNotifications, whatsappSendLog, whatsappBatchJobs } from '@/db/schema';
 import { isoNow } from '@/lib/dates';
-import { sendCrmWhatsAppOne } from '@/lib/crmClient';
+import { sendCrmWhatsAppOne, sendCrmWhatsAppBatch } from '@/lib/crmClient';
 import { newId, parseMilestonesSent } from '@/lib/templates';
 import { getDueTodayRecipients } from '@/lib/milestones';
 
+/**
+ * Service reminders go through CRM → Pinnacle using the same DOCUMENT/utility
+ * path as Sales & Invoicing (PDF on Firebase). That is what actually delivers.
+ */
 export async function POST(req: Request) {
   try {
     await ensureTables();
@@ -14,7 +18,6 @@ export async function POST(req: Request) {
       saleId?: string;
       templateKey?: string;
       bodyParams?: string[];
-      milestoneDays?: number;
     } | null;
 
     if (!body?.saleId) {
@@ -28,10 +31,9 @@ export async function POST(req: Request) {
     }
 
     const templateKey = String(body.templateKey || 'service_1yr');
-    // Static Pinnacle templates (no placeholders)
     const bodyParams = Array.isArray(body.bodyParams) ? body.bodyParams.map(String) : [];
 
-    const result = await sendCrmWhatsAppOne({
+    const crm = await sendCrmWhatsAppOne({
       externalSaleId: sale[0].id,
       phone: sale[0].phone,
       customerName: sale[0].customerName,
@@ -39,15 +41,15 @@ export async function POST(req: Request) {
       bodyParams,
     });
 
+    const confirmed = Boolean(crm.ok && crm.messageId);
     const now = isoNow();
-    const confirmed = Boolean(result.ok && result.messageId);
     await db.insert(whatsappSendLog).values({
       id: newId(),
       saleId: sale[0].id,
       phone: sale[0].phone,
       templateKey,
-      templateName: result.templateName || templateKey,
-      pinnacleResponseJson: JSON.stringify(result),
+      templateName: crm.templateName || templateKey,
+      pinnacleResponseJson: JSON.stringify({ ...crm, via: 'crm_document_utility' }),
       status: confirmed ? 'sent' : 'failed',
       sentAt: now,
     });
@@ -63,14 +65,17 @@ export async function POST(req: Request) {
       confirmed
         ? {
             ok: true,
-            messageId: result.messageId,
-            templateName: result.templateName,
-            to: result.to,
+            messageId: crm.messageId,
+            templateName: crm.templateName,
+            to: crm.to,
+            via: 'crm_document_utility',
           }
         : {
             ok: false,
-            error: result.error || 'WhatsApp send was not confirmed by Pinnacle',
-            raw: result.raw,
+            error:
+              crm.error ||
+              'WhatsApp send was not confirmed. Ensure CRM is running and PINNACLE_* is set.',
+            raw: crm.raw,
           },
       { status: confirmed ? 200 : 502 },
     );
@@ -102,26 +107,25 @@ export async function PUT(req: Request) {
       return NextResponse.json({ ok: true, jobId: null, total: 0, sent: 0, failed: 0, results: [] });
     }
 
-    const { sendCrmWhatsAppBatch } = await import('@/lib/crmClient');
-    const batchRecipients = eligible.map((r) => ({
-      externalSaleId: r.sale.id,
-      phone: r.sale.phone,
-      customerName: r.sale.customerName,
-      bodyParams: [] as string[],
-    }));
-
     const jobId = newId();
     const now = isoNow();
     await db.insert(whatsappBatchJobs).values({
       id: jobId,
       templateKey,
       filterDate: now.slice(0, 10),
-      total: batchRecipients.length,
+      total: eligible.length,
       sent: 0,
       failed: 0,
       status: 'running',
       startedAt: now,
     });
+
+    const batchRecipients = eligible.map((r) => ({
+      externalSaleId: r.sale.id,
+      phone: r.sale.phone,
+      customerName: r.sale.customerName,
+      bodyParams: [] as string[],
+    }));
 
     const batch = await sendCrmWhatsAppBatch({
       templateKey,
@@ -162,7 +166,7 @@ export async function PUT(req: Request) {
       .set({
         sent,
         failed,
-        status: batch.ok ? 'done' : 'failed',
+        status: batch.ok === false ? 'failed' : 'done',
         finishedAt: isoNow(),
         error: batch.error || null,
       })
@@ -171,7 +175,7 @@ export async function PUT(req: Request) {
     return NextResponse.json({
       ok: batch.ok !== false,
       jobId,
-      total: batchRecipients.length,
+      total: eligible.length,
       sent,
       failed,
       results: batch.results,

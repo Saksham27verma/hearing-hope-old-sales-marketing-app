@@ -30,11 +30,11 @@ type Props = {
   onSent?: (ok: boolean, message: string) => void;
 };
 
-const PINNACLE_TEMPLATE_LABELS: Record<string, string> = {
-  service_6mo: 'service_reminder_6mo',
-  service_1yr: 'service_reminder_1yr',
-  upgrade_2yr: 'upgrade_offer_2yr',
-  general_followup: 'general_followup',
+const REMINDER_LABELS: Record<string, string> = {
+  service_6mo: '6-month service reminder PDF',
+  service_1yr: '1-year service reminder PDF',
+  upgrade_2yr: '2-year upgrade offer PDF',
+  general_followup: 'general follow-up PDF',
 };
 
 export default function WhatsAppSendDialog({ open, sale, onClose, onSent }: Props) {
@@ -42,10 +42,12 @@ export default function WhatsAppSendDialog({ open, sale, onClose, onSent }: Prop
   const [templateKey, setTemplateKey] = useState('service_6mo');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
 
   useEffect(() => {
     if (!open) return;
     setError('');
+    setSuccess('');
     void fetch('/api/milestones')
       .then((r) => r.json())
       .then((d) => {
@@ -91,7 +93,8 @@ export default function WhatsAppSendDialog({ open, sale, onClose, onSent }: Prop
     });
   }, [sale, options, templateKey]);
 
-  const pinnacleTemplateName = PINNACLE_TEMPLATE_LABELS[templateKey] || templateKey;
+  const displayPhone = (sale?.phone || '').replace(/\D/g, '');
+  const reminderLabel = REMINDER_LABELS[templateKey] || 'service reminder PDF';
 
   const openDirect = () => {
     if (!sale) return;
@@ -105,6 +108,7 @@ export default function WhatsAppSendDialog({ open, sale, onClose, onSent }: Prop
     if (!sale) return;
     setSending(true);
     setError('');
+    setSuccess('');
     try {
       const res = await fetch('/api/whatsapp', {
         method: 'POST',
@@ -138,12 +142,10 @@ export default function WhatsAppSendDialog({ open, sale, onClose, onSent }: Prop
         onSent?.(false, msg);
         return;
       }
-      const sentLabel = data.templateName || pinnacleTemplateName;
-      onSent?.(
-        true,
-        `WhatsApp sent via Pinnacle (${sentLabel}${data.to ? ` → ${data.to}` : ''})`,
-      );
-      onClose();
+      const to = data.to || displayPhone;
+      const msg = `Sent ${reminderLabel} to ${to} via Pinnacle (same delivery path as invoices). Check WhatsApp on that number for a PDF from Hearing Hope.`;
+      setSuccess(msg);
+      onSent?.(true, `WhatsApp sent → ${to}`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'WhatsApp send failed';
       setError(msg);
@@ -158,16 +160,15 @@ export default function WhatsAppSendDialog({ open, sale, onClose, onSent }: Prop
       <DialogTitle sx={{ fontWeight: 700 }}>WhatsApp {sale?.customerName || ''}</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
-          <Typography variant="body2" color="text.secondary">
-            <strong>Send via Pinnacle</strong> delivers the approved Meta template{' '}
-            <code>{pinnacleTemplateName}</code> (image header, fixed copy) through the CRM — the same
-            Pinnacle API used by Sales &amp; Invoicing. The preview below is only for the optional
-            “Open WhatsApp” button and may not match the template wording on the phone.
-          </Typography>
+          <Alert severity="info" sx={{ borderRadius: 2 }}>
+            Sends to <strong>{displayPhone || 'unknown phone'}</strong> using the same Pinnacle
+            utility/document path as Sales &amp; Invoicing (service reminder PDF). CRM must be
+            running locally on port 3002.
+          </Alert>
           <FormControl fullWidth size="small">
-            <InputLabel>Template</InputLabel>
+            <InputLabel>Reminder</InputLabel>
             <Select
-              label="Template"
+              label="Reminder"
               value={templateKey}
               onChange={(e) => setTemplateKey(e.target.value)}
             >
@@ -188,18 +189,19 @@ export default function WhatsAppSendDialog({ open, sale, onClose, onSent }: Prop
             }}
           >
             <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, fontWeight: 600 }}>
-              Preview for “Open WhatsApp” only (not the Pinnacle template body)
+              PDF content (also used for “Open WhatsApp” text)
             </Typography>
             <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
               {preview}
             </Typography>
           </Stack>
           {error && <Alert severity="error">{error}</Alert>}
+          {success && <Alert severity="success">{success}</Alert>}
         </Stack>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2, gap: 1, flexWrap: 'wrap' }}>
         <Button onClick={onClose} disabled={sending}>
-          Cancel
+          Close
         </Button>
         <Button
           variant="outlined"

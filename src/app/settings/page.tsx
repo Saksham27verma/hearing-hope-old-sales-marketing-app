@@ -90,7 +90,8 @@ export default function SettingsPage() {
       </Box>
 
       <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
-        CRM webhook: {crmUrl} · Pinnacle keys live in hearing-hope-crm only.
+        Service reminders send through CRM → Pinnacle using the same utility/document path as
+        invoices. CRM webhook: {crmUrl}.
       </Alert>
       {saved && (
         <Alert severity="success" sx={{ mb: 2, borderRadius: 2 }}>
