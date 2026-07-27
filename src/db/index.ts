@@ -30,6 +30,21 @@ export async function ensureTables(): Promise<void> {
       updated_at TEXT NOT NULL
     )
   `);
+  // Additive migration: crm_sale_id column + unique index for idempotent CRM sync.
+  try {
+    const cols = await client.execute(`PRAGMA table_info(legacy_sales)`);
+    const hasCrmSaleId = (cols.rows || []).some(
+      (r: Record<string, unknown>) => String(r.name) === 'crm_sale_id',
+    );
+    if (!hasCrmSaleId) {
+      await client.execute(`ALTER TABLE legacy_sales ADD COLUMN crm_sale_id TEXT`);
+    }
+    await client.execute(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_legacy_sales_crm_sale_id ON legacy_sales(crm_sale_id) WHERE crm_sale_id IS NOT NULL`,
+    );
+  } catch (err) {
+    console.error('[ensureTables] crm_sale_id migration failed', err);
+  }
   await client.execute(`
     CREATE TABLE IF NOT EXISTS milestone_rules (
       id TEXT PRIMARY KEY,

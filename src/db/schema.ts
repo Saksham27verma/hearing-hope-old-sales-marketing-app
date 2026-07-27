@@ -12,6 +12,7 @@ export const legacySales = sqliteTable('legacy_sales', {
   source: text('source').notNull().default('manual'),
   status: text('status').notNull().default('active'),
   milestonesSentJson: text('milestones_sent_json').notNull().default('{}'),
+  crmSaleId: text('crm_sale_id'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 });
