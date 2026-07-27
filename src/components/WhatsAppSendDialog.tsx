@@ -31,7 +31,7 @@ type Props = {
 };
 
 const PINNACLE_TEMPLATE_NAMES: Record<string, string> = {
-  service_6mo: 'service_reminder_6mo',
+  service_6mo: 'service_reminder_6mo_second',
   service_1yr: 'service_reminder_1yr',
   upgrade_2yr: 'upgrade_offer_2yr',
   general_followup: 'general_followup',
