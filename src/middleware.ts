@@ -2,7 +2,14 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { COOKIE_NAME } from '@/lib/auth';
 
-const PUBLIC = ['/login', '/api/auth/login', '/api/auth/token', '/api/stats/today', '/api/cron/daily-milestones'];
+const PUBLIC = [
+  '/login',
+  '/api/auth/login',
+  '/api/auth/token',
+  '/api/stats/today',
+  '/api/cron/daily-milestones',
+  '/api/ingest',
+];
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
