@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { desc } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { db, ensureTables } from '@/db';
 import { legacySales } from '@/db/schema';
 import { isoNow } from '@/lib/dates';
@@ -16,17 +16,30 @@ export async function GET(req: Request) {
   const cohortParam = url.searchParams.get('cohort');
   const cohort = isCohortKey(cohortParam) ? cohortParam : null;
 
-  const rows = await db.select().from(legacySales).orderBy(desc(legacySales.saleDate));
-  let filtered = filterSalesByCohort(rows, cohort);
-  if (status) filtered = filtered.filter((r) => r.status === status);
+  const conditions = [];
+  if (status) {
+    conditions.push(eq(legacySales.status, status));
+  }
   if (q) {
-    filtered = filtered.filter(
-      (r) =>
-        r.customerName.toLowerCase().includes(q) ||
-        r.phone.includes(q) ||
-        (r.reference || '').toLowerCase().includes(q),
+    // Strip LIKE wildcards from user input; wrap as contains match.
+    const pattern = `%${q.replace(/[%_]/g, '')}%`;
+    conditions.push(
+      sql`(
+        lower(${legacySales.customerName}) like ${pattern}
+        or ${legacySales.phone} like ${pattern}
+        or lower(coalesce(${legacySales.reference}, '')) like ${pattern}
+      )`,
     );
   }
+
+  const base = db.select().from(legacySales).orderBy(desc(legacySales.saleDate));
+  const rows =
+    conditions.length > 0
+      ? await base.where(conditions.length === 1 ? conditions[0]! : and(...conditions))
+      : await base;
+
+  const filtered = filterSalesByCohort(rows, cohort);
+
   return NextResponse.json({
     ok: true,
     rows: filtered,

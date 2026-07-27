@@ -1,6 +1,15 @@
 'use client';
 
-import React, { useEffect, useState, Suspense } from 'react';
+import React, {
+  memo,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+  Suspense,
+  startTransition,
+} from 'react';
 import { useSearchParams } from 'next/navigation';
 import AppShell from '@/components/AppShell';
 import WhatsAppSendDialog from '@/components/WhatsAppSendDialog';
@@ -9,6 +18,7 @@ import {
   Box,
   Button,
   Chip,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -21,6 +31,7 @@ import {
   TableCell,
   TableContainer,
   TableHead,
+  TablePagination,
   TableRow,
   TextField,
   Typography,
@@ -34,20 +45,106 @@ import WhatsAppIcon from '@mui/icons-material/WhatsApp';
 import EditIcon from '@mui/icons-material/Edit';
 import AddIcon from '@mui/icons-material/Add';
 import SearchIcon from '@mui/icons-material/Search';
+import ClearIcon from '@mui/icons-material/Clear';
 import Link from 'next/link';
 import type { LegacySale } from '@/db/schema';
 import { COHORT_LABELS, isCohortKey } from '@/lib/cohortFilter';
 import { formatSaleDateDisplay } from '@/lib/dates';
 import { formatPhoneDisplay, telHref } from '@/lib/phone';
 
+const PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
+
+type IndexedSale = LegacySale & {
+  _name: string;
+  _phone: string;
+  _ref: string;
+};
+
+function indexSales(rows: LegacySale[]): IndexedSale[] {
+  return rows.map((row) => ({
+    ...row,
+    _name: row.customerName.toLowerCase(),
+    _phone: row.phone.replace(/\D/g, ''),
+    _ref: (row.reference || '').toLowerCase(),
+  }));
+}
+
+function matchesSaleSearch(row: IndexedSale, needle: string, digits: string): boolean {
+  if (!needle) return true;
+  if (row._name.includes(needle) || row._ref.includes(needle)) return true;
+  if (digits && row._phone.includes(digits)) return true;
+  return row.phone.includes(needle);
+}
+
+const SaleRow = memo(function SaleRow({
+  row,
+  highlight,
+  onWhatsApp,
+  onEdit,
+}: {
+  row: IndexedSale;
+  highlight: boolean;
+  onWhatsApp: (row: IndexedSale) => void;
+  onEdit: (row: IndexedSale) => void;
+}) {
+  return (
+    <TableRow
+      hover
+      sx={highlight ? { bgcolor: (t) => alpha(t.palette.primary.main, 0.08) } : undefined}
+    >
+      <TableCell sx={{ fontWeight: 600 }}>{row.customerName}</TableCell>
+      <TableCell>{formatPhoneDisplay(row.phone)}</TableCell>
+      <TableCell>{row.reference || '—'}</TableCell>
+      <TableCell>{formatSaleDateDisplay(row.saleDate)}</TableCell>
+      <TableCell>
+        <Chip
+          size="small"
+          label={row.status.replace(/_/g, ' ')}
+          color={
+            row.status === 'active'
+              ? 'success'
+              : row.status === 'do_not_contact'
+                ? 'error'
+                : row.status === 'serviced'
+                  ? 'primary'
+                  : 'default'
+          }
+          variant="outlined"
+        />
+      </TableCell>
+      <TableCell align="right">
+        <Tooltip title="Call">
+          <IconButton component="a" href={telHref(row.phone)} size="small" color="primary">
+            <PhoneIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title="WhatsApp — choose template">
+          <IconButton size="small" color="success" onClick={() => onWhatsApp(row)}>
+            <WhatsAppIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title="Edit">
+          <IconButton size="small" onClick={() => onEdit(row)}>
+            <EditIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      </TableCell>
+    </TableRow>
+  );
+});
+
 function SalesPageInner() {
   const params = useSearchParams();
   const highlight = params.get('highlight');
   const cohortParam = params.get('cohort');
   const cohort = isCohortKey(cohortParam) ? cohortParam : null;
-  const [rows, setRows] = useState<LegacySale[]>([]);
+  const [allRows, setAllRows] = useState<IndexedSale[]>([]);
   const [cohortLabel, setCohortLabel] = useState<string | null>(null);
   const [q, setQ] = useState('');
+  const deferredQ = useDeferredValue(q);
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(50);
+  const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<LegacySale | null>(null);
   const [waSale, setWaSale] = useState<LegacySale | null>(null);
@@ -62,27 +159,56 @@ function SalesPageInner() {
   });
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
-  const load = async () => {
-    const qs = new URLSearchParams();
-    if (q) qs.set('q', q);
-    if (cohort) qs.set('cohort', cohort);
-    const res = await fetch(`/api/sales?${qs.toString()}`);
-    const data = await res.json();
-    setRows(data.rows || []);
-    setCohortLabel(data.cohortLabel || (cohort ? COHORT_LABELS[cohort] : null));
-  };
+  // Load once per cohort — search filters locally so typing stays instant.
+  const load = useCallback(
+    async (signal?: AbortSignal) => {
+      setLoading(true);
+      try {
+        const qs = new URLSearchParams();
+        if (cohort) qs.set('cohort', cohort);
+        const res = await fetch(`/api/sales?${qs.toString()}`, { signal });
+        const data = await res.json();
+        if (signal?.aborted) return;
+        setAllRows(indexSales(data.rows || []));
+        setCohortLabel(data.cohortLabel || (cohort ? COHORT_LABELS[cohort] : null));
+        setPage(0);
+      } catch (err) {
+        if ((err as { name?: string })?.name === 'AbortError') return;
+        setMsg({ text: 'Failed to load sales', ok: false });
+      } finally {
+        if (!signal?.aborted) setLoading(false);
+      }
+    },
+    [cohort],
+  );
 
   useEffect(() => {
-    void load();
-  }, [q, cohort]);
+    const ac = new AbortController();
+    void load(ac.signal);
+    return () => ac.abort();
+  }, [load]);
 
-  const openNew = () => {
-    setEditing(null);
-    setForm({ customerName: '', phone: '', reference: '', address: '', saleDate: '', notes: '', status: 'active' });
-    setOpen(true);
-  };
+  const filteredRows = useMemo(() => {
+    const needle = deferredQ.trim().toLowerCase();
+    if (!needle) return allRows;
+    const digits = needle.replace(/\D/g, '');
+    return allRows.filter((row) => matchesSaleSearch(row, needle, digits));
+  }, [allRows, deferredQ]);
 
-  const openEdit = (row: LegacySale) => {
+  const pageCount = Math.max(1, Math.ceil(filteredRows.length / rowsPerPage) || 1);
+  const safePage = Math.min(page, pageCount - 1);
+  const rows = useMemo(() => {
+    const start = safePage * rowsPerPage;
+    return filteredRows.slice(start, start + rowsPerPage);
+  }, [filteredRows, safePage, rowsPerPage]);
+
+  const onSearchChange = useCallback((value: string) => {
+    setQ(value);
+    startTransition(() => setPage(0));
+  }, []);
+
+  const onWhatsApp = useCallback((row: IndexedSale) => setWaSale(row), []);
+  const onEdit = useCallback((row: IndexedSale) => {
     setEditing(row);
     setForm({
       customerName: row.customerName,
@@ -93,6 +219,12 @@ function SalesPageInner() {
       notes: row.notes || '',
       status: row.status,
     });
+    setOpen(true);
+  }, []);
+
+  const openNew = () => {
+    setEditing(null);
+    setForm({ customerName: '', phone: '', reference: '', address: '', saleDate: '', notes: '', status: 'active' });
     setOpen(true);
   };
 
@@ -114,11 +246,8 @@ function SalesPageInner() {
     void load();
   };
 
-  const statusChip = (s: string) => {
-    const color =
-      s === 'active' ? 'success' : s === 'do_not_contact' ? 'error' : s === 'serviced' ? 'primary' : 'default';
-    return <Chip size="small" label={s.replace(/_/g, ' ')} color={color} variant="outlined" />;
-  };
+  const searching = q.trim().length > 0;
+  const filterPending = searching && q !== deferredQ;
 
   return (
     <AppShell>
@@ -152,7 +281,8 @@ function SalesPageInner() {
         <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }} flexWrap="wrap" useFlexGap>
           <Chip label={cohortLabel} color="primary" />
           <Typography variant="body2" color="text.secondary">
-            {rows.length} customer{rows.length === 1 ? '' : 's'}
+            {filteredRows.length} customer{filteredRows.length === 1 ? '' : 's'}
+            {searching ? ` matching “${q.trim()}”` : ''}
           </Typography>
           <Button size="small" component={Link} href="/sales">
             Clear filter
@@ -165,7 +295,7 @@ function SalesPageInner() {
         size="small"
         placeholder="Search name, phone, reference…"
         value={q}
-        onChange={(e) => setQ(e.target.value)}
+        onChange={(e) => onSearchChange(e.target.value)}
         sx={{ mb: 2 }}
         InputProps={{
           startAdornment: (
@@ -173,75 +303,91 @@ function SalesPageInner() {
               <SearchIcon fontSize="small" color="action" />
             </InputAdornment>
           ),
+          endAdornment: (
+            <InputAdornment position="end">
+              {loading || filterPending ? (
+                <CircularProgress size={16} sx={{ mr: q.trim() ? 1 : 0 }} />
+              ) : null}
+              {q.trim() ? (
+                <Stack direction="row" spacing={0.5} alignItems="center">
+                  <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
+                    {filteredRows.length} result{filteredRows.length === 1 ? '' : 's'}
+                  </Typography>
+                  <IconButton size="small" aria-label="Clear search" onClick={() => onSearchChange('')}>
+                    <ClearIcon fontSize="small" />
+                  </IconButton>
+                </Stack>
+              ) : null}
+            </InputAdornment>
+          ),
         }}
       />
 
-      <TableContainer
-        component={Paper}
+      <Paper
         elevation={0}
         sx={{
           border: '1px solid',
           borderColor: 'divider',
           borderRadius: 3,
           overflow: 'hidden',
+          opacity: filterPending ? 0.72 : 1,
+          transition: 'opacity 120ms ease',
         }}
       >
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell>Name</TableCell>
-              <TableCell>Phone</TableCell>
-              <TableCell>Reference</TableCell>
-              <TableCell>Sale date</TableCell>
-              <TableCell>Status</TableCell>
-              <TableCell align="right">Actions</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {rows.map((row) => (
-              <TableRow
-                key={row.id}
-                hover
-                sx={
-                  highlight === row.id
-                    ? { bgcolor: (t) => alpha(t.palette.primary.main, 0.08) }
-                    : undefined
-                }
-              >
-                <TableCell sx={{ fontWeight: 600 }}>{row.customerName}</TableCell>
-                <TableCell>{formatPhoneDisplay(row.phone)}</TableCell>
-                <TableCell>{row.reference || '—'}</TableCell>
-                <TableCell>{formatSaleDateDisplay(row.saleDate)}</TableCell>
-                <TableCell>{statusChip(row.status)}</TableCell>
-                <TableCell align="right">
-                  <Tooltip title="Call">
-                    <IconButton component="a" href={telHref(row.phone)} size="small" color="primary">
-                      <PhoneIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                  <Tooltip title="WhatsApp — choose template">
-                    <IconButton size="small" color="success" onClick={() => setWaSale(row)}>
-                      <WhatsAppIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                  <Tooltip title="Edit">
-                    <IconButton size="small" onClick={() => openEdit(row)}>
-                      <EditIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                </TableCell>
-              </TableRow>
-            ))}
-            {rows.length === 0 && (
+        <TableContainer>
+          <Table size="small">
+            <TableHead>
               <TableRow>
-                <TableCell colSpan={6} align="center" sx={{ py: 6 }}>
-                  <Typography color="text.secondary">No sales found.</Typography>
-                </TableCell>
+                <TableCell>Name</TableCell>
+                <TableCell>Phone</TableCell>
+                <TableCell>Reference</TableCell>
+                <TableCell>Sale date</TableCell>
+                <TableCell>Status</TableCell>
+                <TableCell align="right">Actions</TableCell>
               </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </TableContainer>
+            </TableHead>
+            <TableBody>
+              {rows.map((row) => (
+                <SaleRow
+                  key={row.id}
+                  row={row}
+                  highlight={highlight === row.id}
+                  onWhatsApp={onWhatsApp}
+                  onEdit={onEdit}
+                />
+              ))}
+              {!loading && filteredRows.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={6} align="center" sx={{ py: 6 }}>
+                    <Typography color="text.secondary">
+                      {searching ? 'No sales match your search.' : 'No sales found.'}
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              )}
+              {loading && filteredRows.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={6} align="center" sx={{ py: 6 }}>
+                    <CircularProgress size={28} />
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+        <TablePagination
+          component="div"
+          count={filteredRows.length}
+          page={safePage}
+          onPageChange={(_, next) => setPage(next)}
+          rowsPerPage={rowsPerPage}
+          onRowsPerPageChange={(e) => {
+            setRowsPerPage(parseInt(e.target.value, 10));
+            setPage(0);
+          }}
+          rowsPerPageOptions={[...PAGE_SIZE_OPTIONS]}
+        />
+      </Paper>
 
       <Dialog open={open} onClose={() => setOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ fontWeight: 700 }}>{editing ? 'Edit sale' : 'Add sale'}</DialogTitle>
