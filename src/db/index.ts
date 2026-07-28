@@ -100,4 +100,13 @@ export async function ensureTables(): Promise<void> {
       error TEXT
     )
   `);
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS whatsapp_template_settings (
+      template_key TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      pinnacle_template_name TEXT NOT NULL,
+      header_image_url TEXT,
+      updated_at TEXT NOT NULL
+    )
+  `);
 }

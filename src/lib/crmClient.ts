@@ -49,6 +49,10 @@ export async function sendCrmWhatsAppOne(body: {
   customerName: string;
   templateKey: string;
   bodyParams?: string[];
+  /** Exact Meta / Pinnacle template name from lifecycle Settings. */
+  templateName?: string;
+  /** Public HTTPS header image URL from lifecycle Settings. */
+  headerImageUrl?: string;
 }): Promise<{
   ok: boolean;
   messageId?: string;
@@ -110,6 +114,8 @@ export async function sendCrmWhatsAppOne(body: {
 
 export async function sendCrmWhatsAppBatch(body: {
   templateKey: string;
+  templateName?: string;
+  headerImageUrl?: string;
   recipients: Array<{
     externalSaleId: string;
     phone: string;

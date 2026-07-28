@@ -68,6 +68,16 @@ export const whatsappBatchJobs = sqliteTable('whatsapp_batch_jobs', {
   error: text('error'),
 });
 
+/** Per-template Pinnacle name + header image URL (editable from Settings UI). */
+export const whatsappTemplateSettings = sqliteTable('whatsapp_template_settings', {
+  templateKey: text('template_key').primaryKey(),
+  label: text('label').notNull(),
+  pinnacleTemplateName: text('pinnacle_template_name').notNull(),
+  headerImageUrl: text('header_image_url'),
+  updatedAt: text('updated_at').notNull(),
+});
+
 export type LegacySale = typeof legacySales.$inferSelect;
 export type MilestoneRule = typeof milestoneRules.$inferSelect;
 export type LifecycleNotification = typeof lifecycleNotifications.$inferSelect;
+export type WhatsAppTemplateSetting = typeof whatsappTemplateSettings.$inferSelect;

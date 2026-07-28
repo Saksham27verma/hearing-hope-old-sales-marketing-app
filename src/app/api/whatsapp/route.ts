@@ -6,10 +6,11 @@ import { isoNow } from '@/lib/dates';
 import { sendCrmWhatsAppOne, sendCrmWhatsAppBatch } from '@/lib/crmClient';
 import { newId, parseMilestonesSent } from '@/lib/templates';
 import { getDueTodayRecipients } from '@/lib/milestones';
+import { getWhatsAppTemplateSetting } from '@/lib/whatsappSettings';
 
 /**
- * Service reminders go through CRM → Pinnacle using the same DOCUMENT/utility
- * path as Sales & Invoicing (PDF on Firebase). That is what actually delivers.
+ * Service reminders go through CRM → Pinnacle.
+ * Template names + header images come from lifecycle Settings (Turso).
  */
 export async function POST(req: Request) {
   try {
@@ -32,6 +33,7 @@ export async function POST(req: Request) {
 
     const templateKey = String(body.templateKey || 'service_1yr');
     const bodyParams = Array.isArray(body.bodyParams) ? body.bodyParams.map(String) : [];
+    const setting = await getWhatsAppTemplateSetting(templateKey);
 
     const crm = await sendCrmWhatsAppOne({
       externalSaleId: sale[0].id,
@@ -39,6 +41,8 @@ export async function POST(req: Request) {
       customerName: sale[0].customerName,
       templateKey,
       bodyParams,
+      templateName: setting?.pinnacleTemplateName || undefined,
+      headerImageUrl: setting?.headerImageUrl || undefined,
     });
 
     const confirmed = Boolean(crm.ok && crm.messageId);
@@ -48,7 +52,7 @@ export async function POST(req: Request) {
       saleId: sale[0].id,
       phone: sale[0].phone,
       templateKey,
-      templateName: crm.templateName || templateKey,
+      templateName: crm.templateName || setting?.pinnacleTemplateName || templateKey,
       pinnacleResponseJson: JSON.stringify({ ...crm, via: 'crm_document_utility' }),
       status: confirmed ? 'sent' : 'failed',
       sentAt: now,
@@ -100,6 +104,7 @@ export async function PUT(req: Request) {
     } | null;
     const milestoneDays = body?.milestoneDays;
     const templateKey = String(body?.templateKey || 'service_1yr');
+    const setting = await getWhatsAppTemplateSetting(templateKey);
     const recipients = await getDueTodayRecipients(milestoneDays);
 
     const eligible = recipients.filter((r) => r.sale.status === 'active');
@@ -129,6 +134,8 @@ export async function PUT(req: Request) {
 
     const batch = await sendCrmWhatsAppBatch({
       templateKey,
+      templateName: setting?.pinnacleTemplateName || undefined,
+      headerImageUrl: setting?.headerImageUrl || undefined,
       recipients: batchRecipients,
       delayMs: body?.delayMs ?? 1500,
     });
@@ -143,6 +150,7 @@ export async function PUT(req: Request) {
         saleId: r.externalSaleId,
         phone: rec.sale.phone,
         templateKey,
+        templateName: setting?.pinnacleTemplateName || templateKey,
         status: r.ok ? 'sent' : 'failed',
         pinnacleResponseJson: JSON.stringify(r),
         batchJobId: jobId,

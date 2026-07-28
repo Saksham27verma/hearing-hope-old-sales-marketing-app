@@ -18,7 +18,7 @@ import {
 } from '@mui/material';
 import WhatsAppIcon from '@mui/icons-material/WhatsApp';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
-import type { LegacySale, MilestoneRule } from '@/db/schema';
+import type { LegacySale, MilestoneRule, WhatsAppTemplateSetting } from '@/db/schema';
 import { applyTemplate } from '@/lib/templates';
 import { whatsAppHref } from '@/lib/phone';
 import { WHATSAPP_TEMPLATE_OPTIONS } from '@/lib/whatsappTemplates';
@@ -30,15 +30,9 @@ type Props = {
   onSent?: (ok: boolean, message: string) => void;
 };
 
-const PINNACLE_TEMPLATE_NAMES: Record<string, string> = {
-  service_6mo: 'service_reminder_6mo_second',
-  service_1yr: 'service_reminder_1yr_second',
-  upgrade_2yr: 'upgrade_offer_2yr',
-  general_followup: 'general_followup',
-};
-
 export default function WhatsAppSendDialog({ open, sale, onClose, onSent }: Props) {
   const [rules, setRules] = useState<MilestoneRule[]>([]);
+  const [templateSettings, setTemplateSettings] = useState<Record<string, string>>({});
   const [templateKey, setTemplateKey] = useState('service_6mo');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
@@ -48,17 +42,23 @@ export default function WhatsAppSendDialog({ open, sale, onClose, onSent }: Prop
     if (!open) return;
     setError('');
     setSuccess('');
-    void fetch('/api/milestones')
-      .then((r) => r.json())
-      .then((d) => {
-        const rows = (d.rows || []) as MilestoneRule[];
-        setRules(rows);
-        if (rows.some((r) => r.templateKey === 'service_6mo')) {
-          setTemplateKey('service_6mo');
-        } else if (rows[0]?.templateKey) {
-          setTemplateKey(rows[0].templateKey);
-        }
-      });
+    void Promise.all([
+      fetch('/api/milestones').then((r) => r.json()),
+      fetch('/api/whatsapp-settings').then((r) => r.json()),
+    ]).then(([milestones, settings]) => {
+      const rows = (milestones.rows || []) as MilestoneRule[];
+      setRules(rows);
+      const map: Record<string, string> = {};
+      for (const s of (settings.rows || []) as WhatsAppTemplateSetting[]) {
+        map[s.templateKey] = s.pinnacleTemplateName;
+      }
+      setTemplateSettings(map);
+      if (rows.some((r) => r.templateKey === 'service_6mo')) {
+        setTemplateKey('service_6mo');
+      } else if (rows[0]?.templateKey) {
+        setTemplateKey(rows[0].templateKey);
+      }
+    });
   }, [open]);
 
   const options = useMemo(() => {
@@ -94,7 +94,7 @@ export default function WhatsAppSendDialog({ open, sale, onClose, onSent }: Prop
   }, [sale, options, templateKey]);
 
   const displayPhone = (sale?.phone || '').replace(/\D/g, '');
-  const templateName = PINNACLE_TEMPLATE_NAMES[templateKey] || templateKey;
+  const templateName = templateSettings[templateKey] || templateKey;
 
   const openDirect = () => {
     if (!sale) return;
