@@ -32,7 +32,7 @@ type Props = {
 
 export default function WhatsAppSendDialog({ open, sale, onClose, onSent }: Props) {
   const [rules, setRules] = useState<MilestoneRule[]>([]);
-  const [templateSettings, setTemplateSettings] = useState<Record<string, string>>({});
+  const [settingsRows, setSettingsRows] = useState<WhatsAppTemplateSetting[]>([]);
   const [templateKey, setTemplateKey] = useState('service_6mo');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
@@ -47,14 +47,13 @@ export default function WhatsAppSendDialog({ open, sale, onClose, onSent }: Prop
       fetch('/api/whatsapp-settings').then((r) => r.json()),
     ]).then(([milestones, settings]) => {
       const rows = (milestones.rows || []) as MilestoneRule[];
+      const templates = (settings.rows || []) as WhatsAppTemplateSetting[];
       setRules(rows);
-      const map: Record<string, string> = {};
-      for (const s of (settings.rows || []) as WhatsAppTemplateSetting[]) {
-        map[s.templateKey] = s.pinnacleTemplateName;
-      }
-      setTemplateSettings(map);
+      setSettingsRows(templates);
       if (rows.some((r) => r.templateKey === 'service_6mo')) {
         setTemplateKey('service_6mo');
+      } else if (templates[0]?.templateKey) {
+        setTemplateKey(templates[0].templateKey);
       } else if (rows[0]?.templateKey) {
         setTemplateKey(rows[0].templateKey);
       }
@@ -62,21 +61,28 @@ export default function WhatsAppSendDialog({ open, sale, onClose, onSent }: Prop
   }, [open]);
 
   const options = useMemo(() => {
-    const fromRules = rules.map((r) => ({
-      key: r.templateKey,
-      label: `${r.label} (${r.daysAfterSale}d)`,
-      messageTemplate: r.messageTemplate,
-      milestoneLabel: r.label,
+    const fromSettings = settingsRows.map((s) => ({
+      key: s.templateKey,
+      label: s.label,
+      messageTemplate:
+        WHATSAPP_TEMPLATE_OPTIONS.find((o) => o.key === s.templateKey)?.defaultMessage ||
+        'Hi {{customerName}}, this is Hearing Hope regarding your purchase on {{saleDate}} ({{reference}}).',
+      milestoneLabel: s.label,
+      pinnacleName: s.pinnacleTemplateName,
     }));
-    const keys = new Set(fromRules.map((o) => o.key));
-    const extras = WHATSAPP_TEMPLATE_OPTIONS.filter((o) => !keys.has(o.key)).map((o) => ({
-      key: o.key,
-      label: o.label,
-      messageTemplate: o.defaultMessage,
-      milestoneLabel: o.label,
-    }));
-    return [...fromRules, ...extras];
-  }, [rules]);
+    const keys = new Set(fromSettings.map((o) => o.key));
+    // Milestone rules whose key isn't in settings yet still appear for convenience.
+    const fromRules = rules
+      .filter((r) => !keys.has(r.templateKey))
+      .map((r) => ({
+        key: r.templateKey,
+        label: `${r.label} (${r.daysAfterSale}d)`,
+        messageTemplate: r.messageTemplate,
+        milestoneLabel: r.label,
+        pinnacleName: r.templateKey,
+      }));
+    return [...fromSettings, ...fromRules];
+  }, [settingsRows, rules]);
 
   const preview = useMemo(() => {
     if (!sale) return '';
@@ -94,7 +100,10 @@ export default function WhatsAppSendDialog({ open, sale, onClose, onSent }: Prop
   }, [sale, options, templateKey]);
 
   const displayPhone = (sale?.phone || '').replace(/\D/g, '');
-  const templateName = templateSettings[templateKey] || templateKey;
+  const templateName =
+    options.find((o) => o.key === templateKey)?.pinnacleName ||
+    settingsRows.find((s) => s.templateKey === templateKey)?.pinnacleTemplateName ||
+    templateKey;
 
   const openDirect = () => {
     if (!sale) return;
@@ -170,12 +179,13 @@ export default function WhatsAppSendDialog({ open, sale, onClose, onSent }: Prop
             <InputLabel>Template</InputLabel>
             <Select
               label="Template"
-              value={templateKey}
+              value={options.some((o) => o.key === templateKey) ? templateKey : options[0]?.key || ''}
               onChange={(e) => setTemplateKey(e.target.value)}
             >
               {options.map((o) => (
                 <MenuItem key={o.key} value={o.key}>
                   {o.label}
+                  {o.pinnacleName ? ` · ${o.pinnacleName}` : ''}
                 </MenuItem>
               ))}
             </Select>
